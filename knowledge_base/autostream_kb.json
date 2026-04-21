@@ -1,0 +1,63 @@
+{
+  "company": {
+    "name": "AutoStream",
+    "tagline": "Automated video editing tools for content creators.",
+    "description": "AutoStream is a SaaS platform that uses AI to automate video editing, captioning, and publishing — so creators can focus on content, not production."
+  },
+  "plans": [
+    {
+      "name": "Basic Plan",
+      "price_monthly": 29,
+      "features": [
+        "10 videos per month",
+        "720p resolution exports",
+        "Basic auto-cut and trim",
+        "Standard email support"
+      ]
+    },
+    {
+      "name": "Pro Plan",
+      "price_monthly": 79,
+      "features": [
+        "Unlimited videos per month",
+        "4K resolution exports",
+        "AI-generated captions",
+        "Priority 24/7 live support",
+        "Advanced AI scene detection",
+        "Custom branding watermarks"
+      ]
+    }
+  ],
+  "policies": [
+    {
+      "topic": "Refund Policy",
+      "detail": "No refunds are issued after 7 days from the date of purchase."
+    },
+    {
+      "topic": "Support",
+      "detail": "24/7 live support is available exclusively on the Pro plan. Basic plan users receive standard email support with a 24-hour response time."
+    },
+    {
+      "topic": "Billing",
+      "detail": "All plans are billed monthly. You can upgrade or downgrade at any time; changes take effect at the start of the next billing cycle."
+    },
+    {
+      "topic": "Free Trial",
+      "detail": "A 7-day free trial is available for the Pro plan. No credit card required to start."
+    }
+  ],
+  "faqs": [
+    {
+      "question": "What platforms does AutoStream support for publishing?",
+      "answer": "AutoStream integrates with YouTube, Instagram, TikTok, and Twitter/X for direct publishing."
+    },
+    {
+      "question": "Can I cancel my subscription anytime?",
+      "answer": "Yes, you can cancel anytime from your account dashboard. Your access continues until the end of the billing period."
+    },
+    {
+      "question": "Is there a limit on video length?",
+      "answer": "Basic plan supports videos up to 30 minutes. Pro plan supports videos up to 4 hours."
+    }
+  ]
+}

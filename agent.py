@@ -252,6 +252,18 @@ PRICE_OBJECTION_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
+PLAN_DISSATISFACTION_PATTERNS = re.compile(
+    r"\b(don.?t|do not|not)\b.*\b(like|happy|satisfied)\b.*\b(plan|subscription)\b|"
+    r"\b(plan|subscription)\b.*\b(not working|isn.?t working|not useful|broken|issue|problem)\b|"
+    r"\b(promised)\b.*\b(not|isn.?t|wasn.?t)\b.*\b(given|delivered|provided)\b",
+    re.IGNORECASE,
+)
+
+REFUND_PATTERNS = re.compile(
+    r"\b(refund|money back|return my money|cancel and refund)\b",
+    re.IGNORECASE,
+)
+
 PRO_SIGNALS = [
     "unlimited", "4k", "captions", "support", "priority", "advanced",
     "branding", "daily", "many videos", "high volume", "team", "agency",
@@ -291,6 +303,14 @@ def _is_plan_recommendation_query(user_text: str) -> bool:
 
 def _is_price_objection(user_text: str) -> bool:
     return bool(PRICE_OBJECTION_PATTERNS.search(user_text))
+
+
+def _is_plan_dissatisfaction(user_text: str) -> bool:
+    return bool(PLAN_DISSATISFACTION_PATTERNS.search(user_text))
+
+
+def _is_refund_query(user_text: str) -> bool:
+    return bool(REFUND_PATTERNS.search(user_text))
 
 
 def _plan_recommendation_response(user_text: str) -> str:
@@ -337,6 +357,28 @@ def _price_objection_response(user_text: str) -> str:
         "custom branding, and priority 24/7 support.\n\n"
         "There is also a 7-day Pro trial with no credit card required, so you can test it risk-free first. "
         "Want to try Pro?"
+    )
+
+
+def _plan_dissatisfaction_response() -> str:
+    """Handle dissatisfaction complaints with support-first, conversion-aware guidance."""
+    return (
+        "Sorry this has been frustrating. Let's fix it quickly.\n\n"
+        "You have three solid options right now:\n"
+        "1) If the plan features are not matching your needs, you can upgrade or downgrade anytime, and the change applies at the next billing cycle.\n"
+        "2) If this is a technical issue, I can help you escalate to support: Pro includes priority 24/7 live support, and Basic includes standard email support with about a 24-hour response time.\n"
+        "3) If your purchase is still within the first 7 days, you can request a refund.\n\n"
+        "Do you want to switch plans, contact support, or check refund eligibility first?"
+    )
+
+
+def _refund_policy_response() -> str:
+    """Deterministic refund policy guidance grounded in KB wording."""
+    return (
+        "AutoStream's policy is: no refunds are issued after 7 days from the purchase date.\n\n"
+        "If you're within that 7-day window, you can request a refund. "
+        "If you've crossed 7 days, refund is not available under the current policy.\n\n"
+        "If you'd like, I can help with plan switching as an alternative."
     )
 
 
@@ -580,6 +622,26 @@ def node_respond(state: AgentState) -> AgentState:
             }
 
     current_topics = _extract_topics(last_human)
+    if _is_plan_dissatisfaction(last_human):
+        return {
+            **state,
+            "messages": [AIMessage(content=_plan_dissatisfaction_response())],
+            "intent": "product_inquiry",
+            "lead_info": lead_info,
+            "awaiting_field": awaiting,
+            "explained_topics": list(dict.fromkeys(explained_topics + ["pricing", "billing", "support", "refund_policy"])),
+        }
+
+    if _is_refund_query(last_human):
+        return {
+            **state,
+            "messages": [AIMessage(content=_refund_policy_response())],
+            "intent": "product_inquiry",
+            "lead_info": lead_info,
+            "awaiting_field": awaiting,
+            "explained_topics": list(dict.fromkeys(explained_topics + ["refund_policy"])),
+        }
+
     if _is_plan_recommendation_query(last_human):
         return {
             **state,

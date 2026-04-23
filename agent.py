@@ -62,34 +62,40 @@ def _get_llm():
 # System prompt builder
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT_TEMPLATE = """You are Aria, a helpful and friendly AI sales assistant for AutoStream — a SaaS platform offering automated video editing tools for content creators.
+SYSTEM_PROMPT_TEMPLATE = """You are Aria, a friendly but high-performing AI sales assistant for AutoStream, a SaaS platform for automated video editing.
+
+Primary objective:
+- Help the user confidently choose a plan and move toward signup on the AutoStream website.
 
 Your goals:
-1. Greet users warmly and understand their needs.
+1. Greet naturally and understand the creator's workflow.
 2. Answer product, pricing, and policy questions accurately using ONLY the knowledge base below.
-3. Identify when a user shows high buying intent (e.g. wants to sign up, try the Pro plan, get started).
-4. When high intent is detected, collect the user's name, email, and creator platform (YouTube, Instagram, TikTok, etc.) — one at a time, naturally.
-5. NEVER call the lead capture tool until you have all three: name, email, and platform.
+3. Use consultative persuasion: clear recommendation, reason tied to the user's needs, and one low-friction CTA.
+4. Identify high buying intent (e.g. sign up now, get started now).
+5. When high intent is detected, collect name, email, and creator platform one at a time.
+6. NEVER call the lead capture tool until all three are collected.
 
-Intent classification rules (include in your response as JSON on the LAST line ONLY):
-- "greeting" → user is saying hi / small talk
-- "product_inquiry" → user asking about features, pricing, policies
-- "high_intent" → user clearly wants to sign up now / start now / proceed now
-- "other" → anything else
-
-Important intent nuance:
-- If the user is still exploring, comparing, considering, or undecided (even if they mention trying later), classify as "product_inquiry".
-- Only classify as "high_intent" when the user explicitly indicates they are ready to proceed now.
-
-Conversation quality rules:
-- Avoid repeating the same details if they were already explained in this conversation.
-- If a user asks about an already covered topic, give a short summary and move the conversation forward.
-- Do not greet repeatedly. Only greet when the user greets first.
+Response style rules:
+- Keep answers concise and concrete.
+- For plan questions, include: direct answer, best-fit recommendation (Basic or Pro), and one CTA question.
+- Be persuasive, never pushy. Be confident, never manipulative.
+- Do not greet repeatedly.
+- If a topic was already covered, summarize briefly and move forward.
 
 Accuracy rules:
-- Never invent plans, prices, or policy details.
+- Never invent plans, prices, policies, guarantees, discounts, or performance claims.
 - AutoStream has only two plans in this knowledge base: Basic Plan ($29/month) and Pro Plan ($79/month).
-- If asked about plans, answer using only those two plans.
+- If unsure, ask one clarifying question instead of guessing.
+
+Intent classification rules (include as JSON on the LAST line ONLY):
+- "greeting" = user says hi / small talk
+- "product_inquiry" = user asks about features, pricing, plans, FAQs, policies, comparison, recommendation
+- "high_intent" = user clearly wants to start/signup/proceed now
+- "other" = anything else
+
+Important intent nuance:
+- Exploring, comparing, or undecided language stays "product_inquiry".
+- Use "high_intent" only when user explicitly indicates readiness to proceed now.
 
 IMPORTANT:
 Return ONLY valid JSON on the last line in this exact format:
@@ -121,10 +127,22 @@ def _parse_intent_from_response(text: str) -> tuple[str, str]:
     Extract the intent JSON tag from the LLM response.
     Returns (clean_text, intent_str).
     """
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for i in range(len(lines) - 1, -1, -1):
+        line = lines[i]
+        if line.startswith("{") and line.endswith("}"):
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            intent = str(payload.get("intent", "other")).strip().lower() or "other"
+            clean = "\n".join(lines[:i]).strip()
+            return clean, intent
+
     pattern = r'\{"intent":\s*"([^"]+)"\}'
     match = re.search(pattern, text)
     if match:
-        intent = match.group(1)
+        intent = match.group(1).strip().lower() or "other"
         clean = text[:match.start()].strip()
         return clean, intent
     return text.strip(), "other"
@@ -137,6 +155,27 @@ def _parse_intent_from_response(text: str) -> tuple[str, str]:
 EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 PLATFORM_KEYWORDS = ["youtube", "instagram", "tiktok", "twitter", "x", "facebook",
                      "twitch", "linkedin", "snapchat", "pinterest", "vimeo"]
+
+
+def _clean_name_value(text: str) -> Optional[str]:
+    """Normalize a short name reply (e.g., "I'm Bhanu" -> "Bhanu")."""
+    value = text.strip()
+    value = re.sub(r"^(hi|hello|hey)[,\s]+", "", value, flags=re.IGNORECASE)
+    value = re.sub(r"^(i am|i'm|im|my name is|this is)\s+", "", value, flags=re.IGNORECASE)
+    value = re.sub(r"[.!?]+$", "", value).strip()
+
+    if not value or any(token in value.lower() for token in ("@", "http", "www.")):
+        return None
+    if len(value.split()) > 5:
+        return None
+
+    # Keep only sensible name characters.
+    value = re.sub(r"[^A-Za-z\s\-']", "", value).strip()
+    if not value:
+        return None
+
+    parts = [p.capitalize() for p in value.split()]
+    return " ".join(parts)
 
 def _extract_field(field: str, user_text: str) -> Optional[str]:
     """Try to extract a specific lead field from a short user reply."""
@@ -154,10 +193,7 @@ def _extract_field(field: str, user_text: str) -> Optional[str]:
             return text
         return None
     if field == "name":
-        # Accept anything up to 5 words that isn't a URL/email
-        if len(text.split()) <= 5 and "@" not in text and "http" not in text:
-            return text
-        return None
+        return _clean_name_value(text)
     return None
 
 
@@ -205,24 +241,147 @@ def _is_generic_plan_query(user_text: str) -> bool:
     return (asks_plan or asks_pricing) and not mentions_specific
 
 
+PLAN_RECOMMEND_PATTERNS = re.compile(
+    r"\b(which|what)\s+(plan|tier)\b|\bbest\s+plan\b|\brecommend(?:ed|ation)?\b|"
+    r"\bshould i (pick|choose|get)\b|\bwhich one\b|\bcompare\b",
+    re.IGNORECASE,
+)
+
+PRICE_OBJECTION_PATTERNS = re.compile(
+    r"\b(expensive|costly|too much|overpriced|over budget|budget|afford|cheap)\b",
+    re.IGNORECASE,
+)
+
+PRO_SIGNALS = [
+    "unlimited", "4k", "captions", "support", "priority", "advanced",
+    "branding", "daily", "many videos", "high volume", "team", "agency",
+    "long video", "youtube", "tiktok", "instagram", "grow", "scale", "pro",
+]
+
+BASIC_SIGNALS = [
+    "budget", "cheap", "affordable", "light usage", "few videos",
+    "starter", "beginner", "simple", "small", "basic",
+]
+
+
+def _keyword_score(text: str, keywords: list[str]) -> int:
+    lower = text.lower()
+    return sum(1 for kw in keywords if kw in lower)
+
+
+def _infer_plan_recommendation(user_text: str) -> Optional[str]:
+    """Infer a likely best-fit plan from user signals in message text."""
+    pro_score = _keyword_score(user_text, PRO_SIGNALS)
+    basic_score = _keyword_score(user_text, BASIC_SIGNALS)
+
+    # The free trial applies to Pro, so trial-seeking language nudges toward Pro.
+    if "trial" in user_text.lower():
+        pro_score += 1
+
+    if pro_score > basic_score:
+        return "pro_plan"
+    if basic_score > pro_score:
+        return "basic_plan"
+    return None
+
+
+def _is_plan_recommendation_query(user_text: str) -> bool:
+    return bool(PLAN_RECOMMEND_PATTERNS.search(user_text))
+
+
+def _is_price_objection(user_text: str) -> bool:
+    return bool(PRICE_OBJECTION_PATTERNS.search(user_text))
+
+
+def _plan_recommendation_response(user_text: str) -> str:
+    """Deterministic recommendation response grounded in KB facts."""
+    recommendation = _infer_plan_recommendation(user_text)
+    if recommendation == "pro_plan":
+        return (
+            "Based on what you shared, Pro is the better fit. It includes unlimited videos, "
+            "4K exports, AI-generated captions, advanced scene detection, custom branding, "
+            "and priority 24/7 live support.\n\n"
+            "You can also start with the 7-day Pro trial (no credit card required) before fully committing. "
+            "Want to start with Pro now?"
+        )
+    if recommendation == "basic_plan":
+        return (
+            "Based on your current needs, Basic is a smart starting point at $29/month. "
+            "You get 10 videos/month, 720p exports, basic auto-cut and trim, and standard email support.\n\n"
+            "If your volume grows, you can upgrade at the next billing cycle. "
+            "Would you like to start with Basic or compare it with Pro once?"
+        )
+    return (
+        "Quick way to choose: Basic ($29/month) is best for lower-volume workflows "
+        "with up to 10 videos and 720p exports. Pro ($79/month) is best for scale with "
+        "unlimited videos, 4K exports, AI captions, advanced scene detection, custom branding, "
+        "and priority 24/7 support.\n\n"
+        "If you're aiming to grow output consistently, Pro usually gives more headroom. "
+        "Want a one-question recommendation?"
+    )
+
+
+def _price_objection_response(user_text: str) -> str:
+    """Handle price objections while preserving trust and moving toward action."""
+    recommendation = _infer_plan_recommendation(user_text)
+    if recommendation == "basic_plan":
+        return (
+            "Fair point on budget. If keeping monthly cost low is the priority, Basic is $29/month "
+            "and covers core editing needs for up to 10 videos.\n\n"
+            "You can start there and upgrade later when your publishing volume increases. "
+            "Want to go with Basic for now?"
+        )
+    return (
+        "Totally fair question. If you need higher output and quality, Pro can be better value at $79/month "
+        "because it includes unlimited videos, 4K exports, AI captions, advanced scene detection, "
+        "custom branding, and priority 24/7 support.\n\n"
+        "There is also a 7-day Pro trial with no credit card required, so you can test it risk-free first. "
+        "Want to try Pro?"
+    )
+
+
 def _canonical_plans_response() -> str:
     """Deterministic plan response to prevent model hallucinations."""
     return (
-        "AutoStream currently offers two plans:\n\n"
-        "1) Basic Plan — $29/month\n"
+        "AutoStream offers two plans:\n\n"
+        "1) Basic Plan - $29/month\n"
         "- 10 videos per month\n"
         "- 720p exports\n"
         "- Basic auto-cut and trim\n"
-        "- Standard email support\n\n"
-        "2) Pro Plan — $79/month\n"
+        "- Standard email support\n"
+        "- Best for creators with lighter monthly volume\n\n"
+        "2) Pro Plan - $79/month\n"
         "- Unlimited videos per month\n"
         "- 4K exports\n"
         "- AI-generated captions\n"
-        "- Priority 24/7 live support\n"
         "- Advanced AI scene detection\n"
-        "- Custom branding watermarks\n\n"
-        "If you want, I can help you compare Basic vs Pro based on your workflow."
+        "- Custom branding watermarks\n"
+        "- Priority 24/7 live support\n"
+        "- Best for consistent, higher-volume publishing\n\n"
+        "Pro also includes a 7-day free trial with no credit card required. "
+        "Want a quick recommendation for your workflow?"
     )
+
+
+def _ensure_actionable_close(user_text: str, ai_text: str, topics: list[str]) -> str:
+    """Append a light CTA when a product answer ends without a clear next step."""
+    if not ai_text.strip() or "__" in ai_text:
+        return ai_text
+
+    lower_text = ai_text.lower()
+    has_cta = any(
+        token in lower_text
+        for token in ["want", "would you like", "ready", "start", "try pro", "yes/no"]
+    )
+    if has_cta or "?" in ai_text:
+        return ai_text
+
+    if any(topic in topics for topic in ["pricing", "basic_plan", "pro_plan", "features", "free_trial"]):
+        return (
+            ai_text
+            + "\n\nIf you want, I can recommend the best plan for your workflow in one quick step."
+        )
+    return ai_text
 
 
 def _strip_redundant_greeting(user_text: str, ai_text: str) -> str:
@@ -421,6 +580,26 @@ def node_respond(state: AgentState) -> AgentState:
             }
 
     current_topics = _extract_topics(last_human)
+    if _is_plan_recommendation_query(last_human):
+        return {
+            **state,
+            "messages": [AIMessage(content=_plan_recommendation_response(last_human))],
+            "intent": "product_inquiry",
+            "lead_info": lead_info,
+            "awaiting_field": awaiting,
+            "explained_topics": list(dict.fromkeys(explained_topics + ["basic_plan", "pro_plan", "pricing"])),
+        }
+
+    if _is_price_objection(last_human):
+        return {
+            **state,
+            "messages": [AIMessage(content=_price_objection_response(last_human))],
+            "intent": "product_inquiry",
+            "lead_info": lead_info,
+            "awaiting_field": awaiting,
+            "explained_topics": list(dict.fromkeys(explained_topics + ["pricing"])),
+        }
+
     if _is_generic_plan_query(last_human):
         return {
             **state,
@@ -476,6 +655,7 @@ def node_respond(state: AgentState) -> AgentState:
         raw_text = response.content if hasattr(response, "content") else str(response)
         clean_text, intent_str = _parse_intent_from_response(raw_text)
         clean_text = _strip_redundant_greeting(last_human, clean_text)
+        clean_text = _ensure_actionable_close(last_human, clean_text, current_topics)
         if not clean_text.strip():
             clean_text = "Could you clarify what you'd like to know more about: plans, pricing, features, or policies?"
     except Exception as err:

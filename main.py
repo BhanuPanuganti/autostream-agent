@@ -23,8 +23,8 @@ from agent import build_graph, run_turn, initial_state
 BANNER = """
 ╔══════════════════════════════════════════════════════════╗
 ║        AutoStream — AI Sales Assistant (Aria)            ║
-║  Powered by Gemini + LangGraph + Local RAG               ║
-║  Type  'quit' or 'exit' to end the session.              ║
+║       Powered by Gemini + LangGraph + Local RAG          ║
+║       Type  'quit' or 'exit' to end the session.         ║
 ╚══════════════════════════════════════════════════════════╝
 """
 

@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AutoStream AI Assistant</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: Manrope, "Segoe UI", sans-serif;
+            background:
+                radial-gradient(circle at 10% 20%, #e8f3ff 0%, rgba(232,243,255,0) 35%),
+                radial-gradient(circle at 85% 25%, #ffeed7 0%, rgba(255,238,215,0) 35%),
+                #f7f9fc;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        #chat-container {
+            width: min(1200px, 94vw);
+            height: min(800px, 90vh);
+            background: #ffffff;
+            border-radius: 18px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 20px 60px rgba(19, 38, 65, 0.12);
+            border: 1px solid #dbe3ee;
+            overflow: hidden;
+        }
+
+        #chat-header {
+            padding: 16px 18px;
+            border-bottom: 1px solid #e7edf5;
+            background: linear-gradient(90deg, #f7fbff 0%, #fffaf4 100%);
+        }
+
+        #chat-title {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 700;
+            color: #1f2a37;
+        }
+
+        #chat-subtitle {
+            margin: 4px 0 0;
+            font-size: 13px;
+            color: #536273;
+        }
+
+        #messages {
+            flex: 1;
+            padding: 16px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            scroll-behavior: smooth;
+            word-break: break-word;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .msg {
+            margin: 12px 0;
+            padding: 12px 14px;
+            border-radius: 12px;
+            max-width: 80%;
+            line-height: 1.5;
+            font-size: 15px;
+            word-wrap: break-word;
+            overflow: visible;
+        }
+
+        .user {
+            background: #d9ebff;
+            align-self: flex-end;
+            margin-left: auto;
+            color: #123256;
+        }
+
+        .bot {
+            background: #f2f5f8;
+            align-self: flex-start;
+            max-width: 85%;
+            white-space: pre-wrap;
+            color: #1f2a37;
+        }
+
+        .bot table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 10px 0 4px;
+            font-size: 15px;
+            table-layout: auto;
+        }
+
+        .bot th, .bot td {
+            border: 1px solid #ccd6e3;
+            padding: 8px;
+            text-align: left;
+        }
+
+        .bot th {
+            background-color: #eaf0f7;
+            font-weight: bold;
+        }
+
+        .bot ul {
+            margin: 8px 0;
+            padding-left: 18px;
+        }
+
+        .bot p {
+            margin: 0 0 8px;
+        }
+
+        #input-area {
+            display: flex;
+            border-top: 1px solid #e7edf5;
+            padding: 8px;
+            gap: 10px;
+            background: #fbfdff;
+        }
+
+        input {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #d1dbe8;
+            border-radius: 10px;
+            outline: none;
+            font-family: inherit;
+            font-size: 15px;
+            transition: border-color 0.2s ease;
+        }
+
+        input:focus {
+            border-color: #69a1df;
+        }
+
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 10px;
+            background: #1769c9;
+            color: white;
+            cursor: pointer;
+            font-weight: 700;
+            font-family: inherit;
+            transition: background 0.2s ease, transform 0.12s ease;
+        }
+
+        button:hover {
+            background: #0f56a7;
+            transform: translateY(-1px);
+        }
+
+        @media (max-width: 720px) {
+            #chat-container {
+                height: 100vh;
+                width: 100vw;
+                border-radius: 0;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div id="chat-container">
+    <div id="chat-header">
+        <h1 id="chat-title">AutoStream Assistant</h1>
+        <p id="chat-subtitle">Plan guidance, pricing clarity, and a fast signup path</p>
+    </div>
+    <div id="messages"></div>
+
+    <div id="input-area">
+        <input id="input" placeholder="Type your message..." />
+        <button onclick="send()">Send</button>
+    </div>
+</div>
+
+<script>
+const user_id = "web_user";
+
+function escapeHtml(text) {
+    return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+function formatInlineMarkdown(text) {
+    const safe = escapeHtml(text);
+    return safe.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+}
+
+function renderMarkdown(text) {
+    const lines = text.split("\n");
+    let html = "";
+    let i = 0;
+
+    while (i < lines.length) {
+        const line = lines[i];
+        const trimmed = line.trim();
+
+        if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+            const block = [];
+            while (i < lines.length && lines[i].trim().startsWith("|") && lines[i].trim().endsWith("|")) {
+                block.push(lines[i].trim());
+                i += 1;
+            }
+
+            const rows = block
+                .filter(r => !/^\|[\s\-:|]+\|$/.test(r))
+                .map(r => r.slice(1, -1).split("|").map(c => c.trim()));
+
+            if (rows.length > 0) {
+                html += "<table>";
+                html += "<tr>" + rows[0].map(c => `<th>${formatInlineMarkdown(c)}</th>`).join("") + "</tr>";
+                for (let r = 1; r < rows.length; r++) {
+                    html += "<tr>" + rows[r].map(c => `<td>${formatInlineMarkdown(c)}</td>`).join("") + "</tr>";
+                }
+                html += "</table>";
+            }
+            continue;
+        }
+
+        if (trimmed.startsWith("- ") || trimmed.startsWith("• ")) {
+            html += "<ul>";
+            while (i < lines.length) {
+                const bullet = lines[i].trim();
+                if (!(bullet.startsWith("- ") || bullet.startsWith("• "))) {
+                    break;
+                }
+                html += `<li>${formatInlineMarkdown(bullet.slice(2))}</li>`;
+                i += 1;
+            }
+            html += "</ul>";
+            continue;
+        }
+
+        if (!trimmed) {
+            html += "<br>";
+            i += 1;
+            continue;
+        }
+
+        html += `<p>${formatInlineMarkdown(trimmed)}</p>`;
+        i += 1;
+    }
+
+    return html;
+}
+
+function addMessage(text, cls) {
+    let div = document.createElement("div");
+    div.className = "msg " + cls;
+    div.innerHTML = renderMarkdown(text);
+
+    document.getElementById("messages").appendChild(div);
+
+    // auto scroll
+    let msgBox = document.getElementById("messages");
+    msgBox.scrollTop = msgBox.scrollHeight;
+}
+
+document.getElementById("input").addEventListener("keypress", function(e) {
+    if (e.key === "Enter") {
+        send();
+    }
+});
+
+async function send() {
+    let input = document.getElementById("input");
+    let text = input.value.trim();
+
+    if (!text) return;
+
+    addMessage(text, "user");
+    input.value = "";
+
+    // typing indicator
+    addMessage("Typing...", "bot");
+
+    let res = await fetch("/chat", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            user_id: user_id,
+            message: text
+        })
+    });
+
+    let data = await res.json();
+
+    // remove typing
+    let msgs = document.getElementById("messages");
+    msgs.removeChild(msgs.lastChild);
+
+    addMessage(data.reply, "bot");
+}
+
+window.onload = () => {
+    const welcomeText = "Hi, I'm Aria! \nAutoStream is an automated platform designed to speed up your content creation.\n\nI can help you with:\n• Exploring our core features\n• Finding the right pricing plan\n• Answering policy or support questions\n\nWhat's on your mind today?";
+    
+    addMessage(welcomeText, "bot");
+};
+</script>
+
+</body>
+</html>

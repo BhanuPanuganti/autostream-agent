@@ -111,7 +111,7 @@ Then open `http://127.0.0.1:8000` in your browser.
 
 ## Web Interface
 
-![AutoStream Assistant Interface](images/interface.png)
+![AutoStream Assistant Interface](interface.png)
 
 ## Example Usage
 

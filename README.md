@@ -1,68 +1,77 @@
 # AutoStream AI Sales Agent
 
-AutoStream AI Sales Agent is a conversational assistant for product Q&A, plan guidance, and lead qualification. It is built with LangGraph, Gemini, and a local RAG layer over a JSON knowledge base.
+AutoStream AI Sales Agent is a conversational assistant for AutoStream product Q&A, plan guidance, FAQ handling, and lead qualification. It uses LangGraph for conversation flow, Gemini for generation, and a local knowledge base for grounded answers.
 
-## Features
+## What It Does
 
 | Capability | Implementation |
 |---|---|
-| Intent detection | Heuristic pre-filter + LLM classification (`greeting`, `product_inquiry`, `high_intent`) |
-| RAG-powered answers | Local JSON knowledge base, keyword-scored retrieval, prompt-grounded responses |
-| Lead qualification | Stateful field collection (`name -> email -> platform`) with validation |
-| Tool execution | `mock_lead_capture()` is called only after all required fields are collected |
-| Conversation memory | Full turn history and control flags retained in LangGraph state |
-| Support recovery flow | Deterministic handling for dissatisfaction, plan switch questions, and refund-policy guidance |
+| CLI chat assistant | Interactive terminal session in [main.py](main.py) |
+| Web chat API | FastAPI app in [api.py](api.py) with `/`, `/chat`, `/health`, `/history`, `/debug`, and `/reset` |
+| Intent detection | Heuristic classifier in [tools.py](tools.py) |
+| Knowledge retrieval | Local RAG over [knowledge_base/autostream_kb.json](knowledge_base/autostream_kb.json) via [rag.py](rag.py) |
+| Lead qualification | Stateful `name -> email -> platform` collection and mock lead capture in [agent.py](agent.py) and [tools.py](tools.py) |
+| Semantic fallback | FAISS + sentence-transformers in [vector_store.py](vector_store.py), with keyword fallback if needed |
+| UI | Browser chat template in [templates/index.html](templates/index.html) |
+| Evaluation | Small intent-classification check in [evaluate.py](evaluate.py) |
 
 ## Project Structure
 
 ```text
 autostream-agent/
-|- main.py
 |- agent.py
+|- api.py
+|- evaluate.py
+|- main.py
 |- rag.py
 |- tools.py
+|- vector_store.py
 |- knowledge_base/
 |  |- autostream_kb.json
+|- templates/
+|  |- index.html
 |- requirements.txt
 |- README.md
 ```
 
-## How To Run Locally
+## Requirements
 
-### 1. Clone and enter the project
+- Python 3.10 or newer
+- A valid Gemini API key in `GOOGLE_API_KEY`
+- Optional: `GOOGLE_MODEL` to override the default model name
 
-```bash
-git clone <your-repo-url>
-cd autostream-agent
+The first run may download the sentence-transformer model used by the vector store.
+
+## How To Run
+
+### 1. Create a virtual environment
+
+Windows PowerShell:
+
+```powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1
 ```
 
-If you received this project as a zip file, extract it and run commands from the extracted `autostream-agent` directory.
-
-### 2. Create and activate a virtual environment
+macOS / Linux:
 
 ```bash
 python -m venv venv
 source venv/bin/activate
 ```
 
-Windows PowerShell:
-
-```powershell
-venv\Scripts\Activate.ps1
-```
-
-### 3. Install dependencies
+### 2. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Configure API key
+### 3. Set your Gemini API key
 
-Linux/macOS:
+Windows PowerShell:
 
-```bash
-export GOOGLE_API_KEY=your-google-api-key
+```powershell
+$env:GOOGLE_API_KEY="your-google-api-key"
 ```
 
 Windows CMD:
@@ -71,91 +80,64 @@ Windows CMD:
 set GOOGLE_API_KEY=your-google-api-key
 ```
 
-Windows PowerShell:
+macOS / Linux:
 
-```powershell
-$env:GOOGLE_API_KEY="your-google-api-key"
+```bash
+export GOOGLE_API_KEY=your-google-api-key
 ```
+
 
 Optional model override:
 
-```bash
-export GOOGLE_MODEL=gemini-2.5-flash-lite
+```powershell
+$env:GOOGLE_MODEL="gemini-2.5-flash-lite"
 ```
 
-### 5. Run the assistant
+### 4. Run the terminal assistant
 
 ```bash
 python main.py
 ```
 
-## Example Session
+This opens an interactive chat session with Aria in your terminal. Type `help` for commands and `exit` to quit.
 
-```text
-Aria: Hi there. I can help with pricing, features, policies, and plan guidance.
+### 5. Run the web app
 
-You: I publish daily on YouTube and need captions. Which plan fits me?
-
-Aria: Based on that workflow, Pro is the better fit. It includes unlimited videos,
-4K exports, AI-generated captions, advanced scene detection, custom branding,
-and priority 24/7 support. You can start with the 7-day Pro trial with no credit card required.
-Would you like to start with Pro now?
-
-You: Yes, start
-
-Aria: Great. Could I start with your name?
-
-You: Alex Johnson
-You: alex@example.com
-You: YouTube
-
-System: LEAD CAPTURED SUCCESSFULLY
+```bash
+uvicorn api:app --reload
 ```
 
-## Architecture Explanation (Approx. 200 Words)
+Then open `http://127.0.0.1:8000` in your browser.
 
-LangGraph was selected because this agent is a controlled conversation, not a single prompt-response call. The flow has clear stages: answer product questions, detect buying intent, collect lead details, and trigger lead capture only after required fields are complete. LangGraph maps this cleanly using nodes and conditional edges, which makes behavior explicit and easier to debug.
+## Example Usage
 
-AutoGen was considered, but LangGraph gives tighter deterministic control for this assignment. The rubric emphasizes correctness and predictable tool usage. With graph-based routing, those constraints are implemented directly in code rather than left to prompt behavior alone.
+Terminal chat:
 
-State is managed through a typed `AgentState` object passed across nodes. It includes message history, current intent, lead fields, collection progress (`awaiting_field`), and idempotency flags (`lead_captured`). Routing functions inspect state and decide transitions such as `respond -> confirm_signup -> qualify_lead -> capture_lead`. The LLM is used for natural language generation and intent support, while business rules remain in Python.
+```text
+You > What does the Pro plan include?
+Aria > ...
+```
 
-RAG is local and lightweight: the JSON knowledge base is flattened into chunks, scored against the query, and relevant excerpts are injected into the system prompt. This keeps responses grounded without requiring external vector infrastructure.
+Web API:
 
-## WhatsApp Deployment Using Webhooks
+```bash
+curl -X POST http://127.0.0.1:8000/chat ^
+	-H "Content-Type: application/json" ^
+	-d "{\"user_id\":\"demo\",\"message\":\"What is the refund policy?\"}"
+```
 
-To integrate this agent with WhatsApp, keep channel transport separate from agent logic.
+## Behavior Overview
 
-1. Create a Meta app and enable WhatsApp Business Cloud API.
-2. Configure webhook URL, verification token, and app credentials.
-3. Build a webhook endpoint (FastAPI or Flask) to receive message events.
-4. Parse sender phone number and text from inbound payloads.
-5. Use sender number as session key, load state, run one agent turn, and persist updated state.
-6. Send the generated reply through the WhatsApp messages endpoint.
-7. Verify webhook signatures and implement retry-safe processing.
+- The agent answers from the AutoStream knowledge base and its defined routing logic.
+- Product and policy responses are grounded in the local JSON knowledge base.
+- When a user shows buying intent, the agent collects `name`, `email`, and `platform` before calling the mock lead capture tool.
+- The FastAPI app keeps per-user session state in memory, applies basic rate limiting, and exposes health/debug endpoints.
 
-Suggested production controls:
+## Notes
 
-- Persist session state in Redis or a database keyed by phone number
-- Add idempotency keys for redelivered webhook events
-- Add structured logging, monitoring, and alerting
-- Rate-limit inbound requests and secure secrets through environment configuration
-- Run behind HTTPS with proper access controls
-
-This adapter pattern allows the same core agent to be reused across other messaging channels with minimal changes.
-
-## Assumptions and Limitations
-
-### Assumptions
-
-- The runtime has valid Gemini API access through `GOOGLE_API_KEY`.
-- The knowledge source is the local file `knowledge_base/autostream_kb.json`.
-- Lead capture is represented by `mock_lead_capture()` and can be replaced with a real CRM API integration.
-
-### Current Limitations
-
-- Retrieval uses lightweight keyword overlap scoring, not semantic embeddings.
-- Lead capture is a mock implementation and does not persist to an external system.
-- Webhook deployment is described architecturally; production deployment requires infrastructure provisioning and Meta app configuration.
-- The agent is intentionally constrained to known plan and policy data and will not infer unsupported commercial claims.
+- [tools.py](tools.py) contains the mock lead capture function and intent heuristics.
+- [rag.py](rag.py) handles knowledge-base loading and retrieval.
+- [vector_store.py](vector_store.py) provides semantic search support using FAISS.
+- [templates/index.html](templates/index.html) powers the simple browser UI served by FastAPI.
+- [evaluate.py](evaluate.py) runs a small heuristic intent check for quick sanity testing.
 

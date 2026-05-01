@@ -2,6 +2,11 @@
 
 AutoStream AI Sales Agent is a conversational assistant for AutoStream product Q&A, plan guidance, FAQ handling, and lead qualification. It uses LangGraph for conversation flow, Gemini for generation, and a local knowledge base for grounded answers.
 
+
+## Web Interface
+
+![AutoStream Assistant Interface](interface.png)
+
 ## What It Does
 
 | Capability | Implementation |
@@ -109,9 +114,6 @@ uvicorn api:app --reload
 
 Then open `http://127.0.0.1:8000` in your browser.
 
-## Web Interface
-
-![AutoStream Assistant Interface](interface.png)
 
 ## Example Usage
 
